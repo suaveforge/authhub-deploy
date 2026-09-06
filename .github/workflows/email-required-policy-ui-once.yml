@@ -1,0 +1,64 @@
+name: AuthHub Required Email Policy UI Once
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/email-required-policy-ui-once.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Add required-email policy switch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node <<'NODE'
+          const fs=require('fs');
+          const appFile='app.js';
+          let app=fs.readFileSync(appFile,'utf8');
+          if(!app.includes('EMAIL_REQUIRED_POLICY_UI_V1')){
+            const marker="  function openPolicyModal(projectId,envObj){";
+            const start=app.indexOf(marker);
+            const end=app.indexOf("\n  function openUriModal(projectId,envObj){",start);
+            if(start<0||end<0)throw new Error('policy modal bounds missing');
+            const old=app.slice(start,end);
+            if(!old.includes("id=\"p-email\"")||!old.includes("id=\"p-signup\""))throw new Error('unexpected policy modal');
+            let next=old;
+            next=next.replace(marker,"  // EMAIL_REQUIRED_POLICY_UI_V1\n"+marker);
+            const anchor=`<div class="check-row"><div><strong>신규 회원가입</strong><small>모든 인증수단에서 신규 Project Membership 생성 허용</small></div><button class="switch \${envObj.signup_enabled?'on':''}" id="p-signup"></button></div>`;
+            const required=`<div class="check-row"><div><strong>가입 시 이메일 필수</strong><small>소셜 로그인에서 이메일이 없으면 AuthHub가 이메일 입력과 인증을 완료할 때까지 가입을 끝내지 않습니다.</small></div><button class="switch \${envObj.email_required!==false?'on':''}" id="p-email-required"></button></div>`;
+            if(!next.includes(anchor))throw new Error('signup anchor missing');
+            next=next.replace(anchor,required+anchor);
+            const payloadAnchor=`emailPasswordEnabled:m.querySelector('#p-email').classList.contains('on'),`;
+            if(!next.includes(payloadAnchor))throw new Error('save payload anchor missing');
+            next=next.replace(payloadAnchor,payloadAnchor+`emailRequired:m.querySelector('#p-email-required').classList.contains('on'),`);
+            app=app.slice(0,start)+next+app.slice(end);
+            fs.writeFileSync(appFile,app);
+          }
+          NODE
+          node --check app.js
+          grep -q 'EMAIL_REQUIRED_POLICY_UI_V1' app.js
+          grep -q 'p-email-required' app.js
+          grep -q 'emailRequired:m.querySelector' app.js
+      - name: Commit public admin UI
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'authhub-deploy-worker'
+          git config user.email 'actions@users.noreply.github.com'
+          git add app.js
+          if ! git diff --cached --quiet; then
+            git commit -m 'Expose required-email policy switch'
+            git push origin HEAD:main
+          fi
