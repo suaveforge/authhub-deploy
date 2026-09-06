@@ -7,7 +7,7 @@ const lang=String(params.get('lang')||navigator.language||'ko');
 const apiBase=String(globalThis.AUTHHUB_CONFIG?.apiBase||'').replace(/\/$/,'');
 const $=(id)=>document.getElementById(id);
 const els={project:$('project'),exit:$('exit'),error:$('error'),emailStep:$('email-step'),emailForm:$('email-form'),email:$('email'),send:$('send'),codeStep:$('code-step'),masked:$('masked'),codeForm:$('code-form'),code:$('code'),verify:$('verify'),resend:$('resend'),change:$('change'),expired:$('expired-step'),restart:$('restart'),progress:document.querySelector('.progress')};
-let busy=false,resendUntil=0,timer=null,lastEmail='';
+let busy=false,finishing=false,resendUntil=0,timer=null,lastEmail='';
 const endpoint=(path)=>`${apiBase}${path}${path.includes('?')?'&':'?'}environment=${encodeURIComponent(environment)}`;
 function showError(message=''){els.error.textContent=message;els.error.hidden=!message;}
 function friendly(error){
@@ -45,9 +45,10 @@ function restartUrl(){
   const u=new URL('/login/',location.origin);u.searchParams.set('project',project);u.searchParams.set('environment',environment);u.searchParams.set('redirect_uri',redirectUri);if(state)u.searchParams.set('state',state);if(lang)u.searchParams.set('lang',lang);u.searchParams.set('mode','login');return u.toString();
 }
 function expire(message=''){showStep('expired');showError(message);}
+async function fetchStatus(){return request(`/v1/auth/${encodeURIComponent(project)}/profile-completion/status`,{method:'GET'});}
 async function status(){
   try{
-    const s=await request(`/v1/auth/${encodeURIComponent(project)}/profile-completion/status`,{method:'GET'});
+    const s=await fetchStatus();
     if(!Array.isArray(s.requirements)||!s.requirements.length)return finish();
     if(s.challenge){els.masked.textContent=s.challenge.maskedEmail||'';showStep('code');startTimer(s.challenge.resendAfter);}else showStep('email');
   }catch(error){expire(friendly(error));}
@@ -63,21 +64,33 @@ async function send(email){
     if(error?.status===401)expire(friendly(error));else showError(friendly(error));
   }finally{setBusy(false);els.send.textContent='인증메일 보내기';updateTimer();}
 }
+async function recoverCompletedVerification(){
+  try{
+    const s=await fetchStatus();
+    if(!Array.isArray(s.requirements)||!s.requirements.length){await finish(true);return true;}
+  }catch{}
+  return false;
+}
 async function verify(code){
   if(busy)return;showError();setBusy(true);els.verify.textContent='확인 중…';
   try{
     await request(`/v1/auth/${encodeURIComponent(project)}/profile-completion/email/verify`,{method:'POST',body:JSON.stringify({code:String(code||'').trim()})});
-    await finish();
-  }catch(error){if(error?.status===401)expire(friendly(error));else{showError(friendly(error));els.code.select();}}
-  finally{setBusy(false);els.verify.textContent='확인하고 시작하기';updateTimer();}
+    await finish(true);
+  }catch(error){
+    const code=String(error?.body?.error||'');
+    if((code==='verification_code_expired'||code==='verification_code_already_used')&&await recoverCompletedVerification())return;
+    if(error?.status===401)expire(friendly(error));else{showError(friendly(error));els.code.select();}
+  }finally{setBusy(false);els.verify.textContent='확인하고 시작하기';updateTimer();}
 }
-async function finish(){
-  if(busy)return;showError();setBusy(true);
+async function finish(force=false){
+  if(finishing)return;
+  if(busy&&!force)return;
+  finishing=true;showError();setBusy(true);
   try{
     const r=await request(`/v1/auth/${encodeURIComponent(project)}/profile-completion/complete`,{method:'POST',body:'{}'});
     if(!r.redirectTo)throw new Error('completion_handoff_failed');location.replace(r.redirectTo);
   }catch(error){expire(friendly(error));}
-  finally{setBusy(false);}
+  finally{finishing=false;setBusy(false);}
 }
 els.emailForm.addEventListener('submit',(e)=>{e.preventDefault();send(els.email.value);});
 els.codeForm.addEventListener('submit',(e)=>{e.preventDefault();verify(els.code.value);});
