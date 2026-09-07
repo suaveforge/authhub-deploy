@@ -1,0 +1,48 @@
+name: Finalize AuthHub Account Scope UI V3B Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finalize-account-scope-ui-v3b-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply corrected account-scope UI
+        run: python3 tools/account-scope-ui-v3-public.py
+      - name: Validate behavior and native visual system
+        run: |
+          set -Eeuo pipefail
+          node --check app.js
+          grep -q 'ACCOUNT_SCOPE_UI_V3' app.js
+          grep -q 'ACCOUNT_SCOPE_UI_V3' styles.css
+          grep -q 'Account scope' app.js
+          grep -q 'm-account-group' app.js
+          grep -q 'data-account-scope' app.js
+          grep -q '/admin/account-groups/${encodeURIComponent(effectiveGroupId)}/providers/' app.js
+          ! grep -q "nav('groups','그룹 관리'" app.js
+          ! grep -q 'AuthHubAccountGroupsUI.render' app.js
+          ! grep -q 'account-groups.js' index.html
+          ! grep -q 'account-groups.css' index.html
+          grep -q -- '--sidebar:#111318' styles.css
+          grep -q -- '--accent:#5b5cf0' styles.css
+          test "$(tr -d '\r\n' < BUILD_VERSION.txt)" = 'v20260907-113000-KST'
+          echo ACCOUNT_SCOPE_UI_V3_QA_OK=yes
+      - name: Commit final production bundle and remove one-shot tooling
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js styles.css index.html BUILD_VERSION.txt
+          git rm -f tools/account-scope-ui-v3-patch.py tools/account-scope-ui-v3-public.py .github/workflows/finalize-account-scope-ui-v3-once.yml .github/workflows/finalize-account-scope-ui-v3b-once.yml
+          git commit -m 'Use native AuthHub project account scopes'
+          git push origin HEAD:main
