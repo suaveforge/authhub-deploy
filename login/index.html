@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="color-scheme" content="light" />
+  <meta name="color-scheme" content="light dark" />
   <meta name="robots" content="noindex,nofollow,noarchive" />
   <title>AuthHub 로그인</title>
-  <link rel="stylesheet" href="./hosted-login.css" />
-  <script src="../config.js"></script>
+  <link rel="stylesheet" href="./hosted-login.css?v=v20260909-121000-KST" />
+  <script src="../config.js?v=v20260909-121000-KST"></script>
 </head>
 <body>
   <main class="hosted-shell">
     <section class="auth-card" aria-labelledby="auth-title">
       <header class="auth-head">
         <div>
-          <div class="authhub-mark">AUTHHUB</div>
+          <div class="brand-line"><img id="brand-logo" class="brand-logo" hidden><div class="authhub-mark">AUTHHUB</div></div>
           <p id="project-name" class="project-name">연결 중…</p>
         </div>
         <button id="back-button" class="back-button" type="button">닫기</button>
@@ -25,7 +25,7 @@
         <p id="auth-subtitle">하나의 AuthHub 화면에서 안전하게 로그인합니다.</p>
       </div>
 
-      <div class="tabs" role="tablist" aria-label="계정">
+      <div id="auth-tabs" class="tabs" role="tablist" aria-label="계정">
         <button id="login-tab" class="tab active" type="button" role="tab" aria-selected="true">로그인</button>
         <button id="signup-tab" class="tab" type="button" role="tab" aria-selected="false">회원가입</button>
       </div>
@@ -55,11 +55,47 @@
         <button id="submit-button" class="primary-button" type="submit">로그인</button>
       </form>
 
+      <section id="completion-section" class="completion-section" aria-live="polite" hidden>
+        <div class="completion-progress" aria-hidden="true"><span></span><span></span></div>
+
+        <div id="completion-email-step" class="completion-step">
+          <form id="completion-email-form" class="completion-form">
+            <label>
+              <span id="completion-email-label">이메일</span>
+              <input id="completion-email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" required />
+            </label>
+            <button id="completion-send-button" class="primary-button" type="submit">인증메일 보내기</button>
+          </form>
+          <p id="completion-email-help" class="completion-help"></p>
+        </div>
+
+        <div id="completion-code-step" class="completion-step" hidden>
+          <p id="completion-sent-copy" class="completion-sent-copy"></p>
+          <div id="completion-masked-email" class="masked-email"></div>
+          <form id="completion-code-form" class="completion-form">
+            <label>
+              <span id="completion-code-label">인증번호</span>
+              <input id="completion-code" class="otp-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" enterkeyhint="done" required />
+            </label>
+            <button id="completion-verify-button" class="primary-button" type="submit">확인하고 시작하기</button>
+          </form>
+          <div class="completion-actions">
+            <button id="completion-resend-button" class="text-button" type="button">인증번호 다시 받기</button>
+            <button id="completion-change-email" class="text-button" type="button">다른 이메일 사용</button>
+          </div>
+          <p id="completion-code-help" class="completion-help"></p>
+        </div>
+
+        <div id="completion-expired-step" class="completion-step" hidden>
+          <button id="completion-restart-button" class="primary-button" type="button">다시 로그인</button>
+        </div>
+      </section>
+
       <div id="error" class="message error" role="alert" hidden></div>
       <div id="notice" class="message notice" role="status" hidden></div>
       <p id="security-note" class="security-note">인증은 AuthHub에서 처리되며 비밀번호와 토큰을 서비스 화면에 노출하지 않습니다.</p>
     </section>
   </main>
-  <script type="module" src="./hosted-login.js"></script>
+  <script type="module" src="./hosted-login.js?v=v20260909-121000-KST"></script>
 </body>
 </html>
