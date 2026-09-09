@@ -1,9 +1,13 @@
+import { createProfileCompletionController } from './profile-completion.js';
+import { applyProjectTheme, themedCopy } from './project-theme.js';
+
 const params = new URLSearchParams(location.search);
 const project = String(params.get('project') || '').trim();
 const environment = String(params.get('environment') || 'production').trim();
 const redirectUri = String(params.get('redirect_uri') || '').trim();
 const state = String(params.get('state') || '');
 const requestedMode = params.get('mode') === 'signup' ? 'signup' : 'login';
+const wantsCompletion = params.get('completion') === '1';
 const requestedLang = String(params.get('lang') || '').trim();
 const apiBase = String(globalThis.AUTHHUB_CONFIG?.apiBase || '').replace(/\/$/, '');
 
@@ -39,6 +43,13 @@ const els = {
 let mode = requestedMode;
 let config = null;
 let busy = false;
+const completion = createProfileCompletionController({
+  lang,
+  project,
+  redirectUri,
+  request,
+  onAccessReady: async (accessToken) => handoff(accessToken, true)
+});
 
 function setText(){
   els.subtitle.textContent=c.subtitle;els.loginTab.textContent=c.login;els.signupTab.textContent=c.signup;els.displayLabel.textContent=c.display;els.emailLabel.textContent=c.email;els.passwordLabel.textContent=c.password;els.pwHint.textContent=c.pwHint;els.back.textContent=c.close;els.security.textContent=c.security;els.divider.querySelector('span').textContent=c.or;
@@ -57,7 +68,7 @@ function icon(name){
 }
 function endpoint(path){const u=new URL(apiBase+path);u.searchParams.set('environment',environment);return u.toString();}
 async function request(path,options={}){
-  const res=await fetch(endpoint(path),{...options,headers:{'content-type':'application/json',...(options.headers||{})}});
+  const res=await fetch(endpoint(path),{...options,credentials:'include',headers:{'content-type':'application/json',...(options.headers||{})}});
   const raw=await res.text();let body={};try{body=raw?JSON.parse(raw):{};}catch{body={error:raw||'request_failed'};}
   if(!res.ok)throw Object.assign(new Error(body.error||`request_failed_${res.status}`),{status:res.status,body});return body;
 }
@@ -67,7 +78,8 @@ function validBootRequest(){
 }
 function renderMode(){
   const signup=mode==='signup';
-  els.title.textContent=signup?c.signup:c.login;
+  const themed=themedCopy(config?.theme,mode,signup?c.signup:c.login,c.subtitle);
+  els.title.textContent=themed.title;els.subtitle.textContent=themed.subtitle;
   els.loginTab.classList.toggle('active',!signup);els.loginTab.setAttribute('aria-selected',String(!signup));
   els.signupTab.classList.toggle('active',signup);els.signupTab.setAttribute('aria-selected',String(signup));
   els.displayRow.hidden=!signup;els.display.required=signup;els.pwHint.hidden=!signup;
@@ -83,9 +95,14 @@ function startSocial(provider){
   const u=new URL(endpoint(`/v1/oauth/${encodeURIComponent(project)}/${encodeURIComponent(provider)}/start`));
   u.searchParams.set('redirect_uri',redirectUri);if(state)u.searchParams.set('state',state);location.assign(u.toString());
 }
-async function handoff(accessToken){
-  const result=await request(`/v1/auth/${encodeURIComponent(project)}/authorize`,{method:'POST',headers:{authorization:`Bearer ${accessToken}`},body:JSON.stringify({redirectUri,state})});
-  if(!result.redirectTo)throw new Error('handoff_failed');location.assign(result.redirectTo);
+async function handoff(accessToken, fromCompletion=false){
+  try{
+    const result=await request(`/v1/auth/${encodeURIComponent(project)}/authorize`,{method:'POST',headers:{authorization:`Bearer ${accessToken}`},body:JSON.stringify({redirectUri,state})});
+    if(!result.redirectTo)throw new Error('handoff_failed');location.assign(result.redirectTo);
+  }catch(error){
+    if(!fromCompletion&&error?.status===428&&error?.body?.error==='profile_completion_required'){await completion.enter(accessToken);return;}
+    throw error;
+  }
 }
 async function submitEmail(event){
   event.preventDefault();if(busy)return;clearMessages();setBusy(true);els.submit.textContent=c.processing;
@@ -106,7 +123,10 @@ async function boot(){
   try{
     config=await request(`/v1/config/${encodeURIComponent(project)}`);
     els.projectName.textContent=config?.project?.name||project;
-    document.title=`${mode==='signup'?c.signup:c.login} · ${config?.project?.name||'AuthHub'}`;
+    try{applyProjectTheme(config?.theme,{logo:document.getElementById('brand-logo'),projectName:els.projectName});}catch(error){console.warn('PROJECT_THEME_FALLBACK',error);}
+    renderMode();
+    document.title=`${mode==='signup'?c.signup:c.login} · ${config?.theme?.brandName||config?.project?.name||'AuthHub'}`;
+    if(wantsCompletion){els.status.textContent='';await completion.enter('');return;}
     const providers=Array.isArray(config?.providers)?config.providers:[];
     els.providers.innerHTML='';
     for(const provider of providers){const b=document.createElement('button');b.type='button';b.className=`provider-button provider-${provider}`;b.innerHTML=`${icon(provider)}<span class="provider-label"></span><span aria-hidden="true"></span>`;b.querySelector('.provider-label').textContent=providerLabel(provider);b.addEventListener('click',()=>startSocial(provider));els.providers.appendChild(b);}
@@ -121,5 +141,5 @@ async function boot(){
 els.loginTab.addEventListener('click',()=>{if(!busy){mode='login';renderMode();}});
 els.signupTab.addEventListener('click',()=>{if(!busy&&config?.signupEnabled!==false){mode='signup';renderMode();}});
 els.form.addEventListener('submit',submitEmail);
-els.back.addEventListener('click',()=>history.length>1?history.back():location.replace('https://authhub.suaveforge.com/'));
+els.back.addEventListener('click',()=>{if(completion.handleBack())return;history.length>1?history.back():location.replace('https://authhub.suaveforge.com/');});
 boot();
