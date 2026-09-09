@@ -109,8 +109,9 @@ async function submitEmail(event){
   try{
     const signup=mode==='signup';
     const path=`/v1/auth/${encodeURIComponent(project)}/${signup?'signup':'login'}`;
-    const body=signup?{email:els.email.value.trim(),password:els.password.value,displayName:els.display.value.trim()}:{email:els.email.value.trim(),password:els.password.value};
+    const body=signup?{email:els.email.value.trim(),password:els.password.value,displayName:els.display.value.trim(),redirectUri,state}:{email:els.email.value.trim(),password:els.password.value,redirectUri,state};
     const session=await request(path,{method:'POST',body:JSON.stringify(body)});
+    if(session?.verificationRequired){await completion.enter('');return;}
     if(session?.pendingApproval){showNotice(c.pending);return;}
     if(!session?.accessToken)throw new Error('session_missing');
     await handoff(session.accessToken);
