@@ -68,9 +68,17 @@ function icon(name){
 }
 function endpoint(path){const u=new URL(apiBase+path);u.searchParams.set('environment',environment);return u.toString();}
 async function request(path,options={}){
-  const res=await fetch(endpoint(path),{...options,credentials:'include',headers:{'content-type':'application/json',...(options.headers||{})}});
-  const raw=await res.text();let body={};try{body=raw?JSON.parse(raw):{};}catch{body={error:raw||'request_failed'};}
-  if(!res.ok)throw Object.assign(new Error(body.error||`request_failed_${res.status}`),{status:res.status,body});return body;
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),15000);
+  try{
+    const res=await fetch(endpoint(path),{...options,credentials:'include',signal:options.signal||controller.signal,headers:{'content-type':'application/json',...(options.headers||{})}});
+    const raw=await res.text();let body={};try{body=raw?JSON.parse(raw):{};}catch{body={error:raw||'request_failed'};}
+    if(!res.ok)throw Object.assign(new Error(body.error||`request_failed_${res.status}`),{status:res.status,body});return body;
+  }catch(error){
+    if(controller.signal.aborted)throw new Error('인증 서버 응답이 지연됩니다. 다시 시도해 주세요.');
+    if(error instanceof TypeError)throw new Error('인증 서버 연결에 실패했습니다. 다시 시도해 주세요.');
+    throw error;
+  }finally{clearTimeout(timeout);}
 }
 function validBootRequest(){
   if(!apiBase||!project||!redirectUri)return false;
@@ -111,7 +119,15 @@ async function submitEmail(event){
     const path=`/v1/auth/${encodeURIComponent(project)}/${signup?'signup':'login'}`;
     const body=signup?{email:els.email.value.trim(),password:els.password.value,displayName:els.display.value.trim(),redirectUri,state}:{email:els.email.value.trim(),password:els.password.value,redirectUri,state};
     const session=await request(path,{method:'POST',body:JSON.stringify(body)});
-    if(session?.verificationRequired){await completion.enter('');return;}
+    if(session?.verificationRequired){
+      await completion.enter('');
+      if(session.deliveryPending){
+        showError(lang==='ko'
+          ? '인증메일 전송에 실패했습니다. 이메일 주소를 확인한 뒤 인증메일 보내기를 다시 눌러 주세요. 반복되면 관리자에게 문의해 주세요.'
+          : 'Verification email could not be sent. Check the address and retry sending the code.');
+      }
+      return;
+    }
     if(session?.pendingApproval){showNotice(c.pending);return;}
     if(!session?.accessToken)throw new Error('session_missing');
     await handoff(session.accessToken);
